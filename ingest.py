@@ -2,14 +2,13 @@ import os
 import shutil
 
 import chromadb
-import fitz
+import pymupdf
 from sentence_transformers import SentenceTransformer
 
 
 DOCUMENTS_DIR = "documents"
 CHROMA_DIR = "chroma_db"
 COLLECTION_NAME = "zarathustra"
-
 
 print("Loading embedding model...")
 
@@ -21,18 +20,19 @@ print("Embedding model loaded.")
 
 
 def extract_pdf(pdf_path):
-    document = fitz.open(pdf_path)
+    document = pymupdf.open(pdf_path)
 
     pages = []
 
     for page_number, page in enumerate(document, start=1):
-        text = page.get_text()
 
-        if text.strip():
+        text = page.get_text().strip()
+
+        if text:
             pages.append(
                 {
                     "page": page_number,
-                    "text": text.strip()
+                    "text": text
                 }
             )
 
@@ -41,7 +41,8 @@ def extract_pdf(pdf_path):
     return pages
 
 
-def chunk_text(text, chunk_size=350, overlap=50):
+def chunk_text(text, chunk_size=120, overlap=30):
+
     words = text.split()
 
     chunks = []
@@ -49,6 +50,7 @@ def chunk_text(text, chunk_size=350, overlap=50):
     start = 0
 
     while start < len(words):
+
         end = start + chunk_size
 
         chunk = " ".join(words[start:end])
@@ -62,14 +64,19 @@ def chunk_text(text, chunk_size=350, overlap=50):
 
 
 def build_chunks(pdf_path):
+
     pages = extract_pdf(pdf_path)
 
     chunks = []
 
     for page in pages:
-        page_chunks = chunk_text(page["text"])
+
+        page_chunks = chunk_text(
+            page["text"]
+        )
 
         for chunk in page_chunks:
+
             chunks.append(
                 {
                     "text": chunk,
@@ -90,13 +97,22 @@ def main():
     ]
 
     if not pdf_files:
-        print("ERROR: No PDF found inside documents/")
+
+        print(
+            "ERROR: No PDF found inside documents/"
+        )
+
         return
 
-    print(f"Found {len(pdf_files)} PDF(s).")
+    print(
+        f"Found {len(pdf_files)} PDF(s)."
+    )
 
-    # Rebuild database from scratch.
+    # Delete the previous vector database.
     if os.path.exists(CHROMA_DIR):
+
+        print("Removing old vector database...")
+
         shutil.rmtree(CHROMA_DIR)
 
     chroma_client = chromadb.PersistentClient(
@@ -104,7 +120,12 @@ def main():
     )
 
     collection = chroma_client.create_collection(
-        name=COLLECTION_NAME
+        name=COLLECTION_NAME,
+        configuration={
+            "hnsw": {
+                "space": "cosine"
+            }
+        }
     )
 
     all_chunks = []
@@ -116,16 +137,23 @@ def main():
             pdf_file
         )
 
-        print(f"\nReading: {pdf_file}")
+        print(
+            f"\nReading: {pdf_file}"
+        )
 
-        chunks = build_chunks(pdf_path)
+        chunks = build_chunks(
+            pdf_path
+        )
 
-        print(f"Created {len(chunks)} chunks.")
+        print(
+            f"Created {len(chunks)} chunks."
+        )
 
         all_chunks.extend(chunks)
 
     print(
-        f"\nCreating embeddings for {len(all_chunks)} chunks..."
+        f"\nCreating embeddings for "
+        f"{len(all_chunks)} chunks..."
     )
 
     texts = [
@@ -135,6 +163,7 @@ def main():
 
     embeddings = embedding_model.encode(
         texts,
+        normalize_embeddings=True,
         show_progress_bar=True
     )
 
@@ -161,9 +190,18 @@ def main():
     print("\n================================")
     print("RAG ingestion complete.")
     print("================================")
-    print(f"Documents: {len(pdf_files)}")
-    print(f"Chunks:    {len(all_chunks)}")
-    print(f"Database:  {CHROMA_DIR}/")
+
+    print(
+        f"Documents: {len(pdf_files)}"
+    )
+
+    print(
+        f"Chunks:    {len(all_chunks)}"
+    )
+
+    print(
+        f"Database:  {CHROMA_DIR}/"
+    )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 groq
 chromadb
-sentence-transformers
+sentence-transformers>=6.0.1,<7.0.0
+transformers>=5.17.0,<6.0.0
 pymupdf
 python-dotenv
