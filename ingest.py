@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 
 import chromadb
@@ -19,6 +20,51 @@ embedding_model = SentenceTransformer(
 print("Embedding model loaded.")
 
 
+NOISE_PATTERNS = (
+    "title page",
+    "contents",
+    "editor notes",
+    "appendix",
+    "timeline biography",
+    "references",
+    "note on the translations",
+    "cover photos",
+    "the gay science",
+    "ecce homo",
+    "preface to the anti-christ",
+)
+
+
+def is_noisy_page(text):
+    cleaned = re.sub(r"\s+", " ", text or "").strip()
+    if not cleaned:
+        return True
+
+    if len(cleaned) < 80:
+        return True
+
+    if re.fullmatch(r"[\d\s\-:]+", cleaned):
+        return True
+
+    lower = cleaned.lower()
+    if any(pattern in lower for pattern in NOISE_PATTERNS):
+        return True
+
+    digits = sum(ch.isdigit() for ch in cleaned)
+    if digits / max(len(cleaned), 1) > 0.12:
+        return True
+
+    words = cleaned.split()
+    if len(words) < 20:
+        return True
+
+    letters = sum(ch.isalpha() for ch in cleaned)
+    if letters / max(len(cleaned), 1) < 0.55:
+        return True
+
+    return False
+
+
 def extract_pdf(pdf_path):
     document = pymupdf.open(pdf_path)
 
@@ -28,7 +74,7 @@ def extract_pdf(pdf_path):
 
         text = page.get_text().strip()
 
-        if text:
+        if text and not is_noisy_page(text):
             pages.append(
                 {
                     "page": page_number,
@@ -41,7 +87,7 @@ def extract_pdf(pdf_path):
     return pages
 
 
-def chunk_text(text, chunk_size=120, overlap=30):
+def chunk_text(text, chunk_size=220, overlap=60):
 
     words = text.split()
 
@@ -55,12 +101,32 @@ def chunk_text(text, chunk_size=120, overlap=30):
 
         chunk = " ".join(words[start:end])
 
-        if chunk.strip():
+        if chunk.strip() and len(chunk.split()) >= 30:
             chunks.append(chunk)
 
         start += chunk_size - overlap
 
     return chunks
+
+
+def is_meaningful_chunk(chunk):
+    text = re.sub(r"\s+", " ", chunk or "").strip()
+    if not text:
+        return False
+
+    words = text.split()
+    if len(words) < 25:
+        return False
+
+    lower = text.lower()
+    if any(pattern in lower for pattern in NOISE_PATTERNS):
+        return False
+
+    digits = sum(ch.isdigit() for ch in text)
+    if digits / max(len(text), 1) > 0.15:
+        return False
+
+    return True
 
 
 def build_chunks(pdf_path):
@@ -76,14 +142,14 @@ def build_chunks(pdf_path):
         )
 
         for chunk in page_chunks:
-
-            chunks.append(
-                {
-                    "text": chunk,
-                    "page": page["page"],
-                    "source": os.path.basename(pdf_path)
-                }
-            )
+            if is_meaningful_chunk(chunk):
+                chunks.append(
+                    {
+                        "text": chunk,
+                        "page": page["page"],
+                        "source": os.path.basename(pdf_path)
+                    }
+                )
 
     return chunks
 

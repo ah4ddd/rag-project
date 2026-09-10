@@ -63,6 +63,36 @@ def _build_query_variants(question):
     return [variant for variant in variants if variant and variant.strip()]
 
 
+def is_meaningful_chunk(chunk):
+    if chunk is None:
+        return False
+
+    text = str(chunk).strip()
+    if not text:
+        return False
+
+    words = text.split()
+    if len(words) < 20:
+        return False
+
+    lower = text.lower()
+    if any(pattern in lower for pattern in [
+        "title page",
+        "contents",
+        "editor notes",
+        "appendix",
+        "timeline biography",
+        "references",
+        "cover photos",
+        "note on the translations",
+        "preface to the anti-christ",
+    ]):
+        return False
+
+    digits = sum(ch.isdigit() for ch in text)
+    return digits / max(len(text), 1) <= 0.15
+
+
 def retrieve(question, number_of_results=8):
 
     if question is None:
@@ -95,7 +125,7 @@ def retrieve(question, number_of_results=8):
 
         results = collection.query(
             query_embeddings=[question_embedding.tolist()],
-            n_results=max(5, number_of_results),
+            n_results=max(10, number_of_results * 2),
             include=["documents", "metadatas", "distances"]
         )
 
@@ -104,6 +134,9 @@ def retrieve(question, number_of_results=8):
             results["metadatas"][0],
             results["distances"][0]
         ):
+            if not is_meaningful_chunk(document):
+                continue
+
             key = (metadata.get("source", "unknown"), metadata.get("page", 0), document)
             similarity = max(0.0, 1 - float(distance))
 
